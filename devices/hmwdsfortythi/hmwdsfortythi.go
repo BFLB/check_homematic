@@ -116,8 +116,8 @@ func Check(state *hm.State, wTemp *string, cTemp *string, wHumi *string, cHumi *
 
 	message += fmt.Sprintf("Humidity: %d%% ", humidity)
 	if statHumi.ReturnCode() != s.OK {
-		message += fmt.Sprintf("(%s) ", statTemp.String())
-	} 
+		message += fmt.Sprintf("(%s) ", statHumi.String())
+	}
 
 	// Add message
 	check.Message(message)
