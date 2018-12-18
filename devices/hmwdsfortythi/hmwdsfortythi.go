@@ -111,7 +111,7 @@ func Check(state *hm.State, wTemp *string, cTemp *string, wHumi *string, cHumi *
 	}
 
 	statHumi := s.New()
-	statHumi.Threshold(temperature, rangeWarnHumi, rangeCritHumi, true)
+	statHumi.Threshold(float64(humidity), rangeWarnHumi, rangeCritHumi, true)
 	check.Status.Merge(statHumi)
 
 	message += fmt.Sprintf("Humidity: %d%% ", humidity)
