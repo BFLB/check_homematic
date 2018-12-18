@@ -11,28 +11,90 @@ import (
 	"flag"
 	"fmt"
 	"log"
-	"strconv"
-	"os"
 
-	hm       "github.com/BFLB/HomeMatic"
-	check    "github.com/BFLB/monitoringplugin"
-	status  "github.com/BFLB/monitoringplugin/status"
-	perfdata "github.com/BFLB/monitoringplugin/performancedata"
-	r        "github.com/BFLB/monitoringplugin/Range"
-	writer   "github.com/BFLB/monitoringplugin/writers/activeWriter"
+	hm           "github.com/BFLB/HomeMatic"
+	check        "github.com/BFLB/monitoringplugin"
+	r            "github.com/BFLB/monitoringplugin/Range"
+	activeWriter "github.com/BFLB/monitoringplugin/writers/activeWriter"
+	hmwds40thi   "github.com/BFLB/check_homematic/devices/hmwdsfortythi"
+
 )
 
 // Comman-line Arguments
 var (
-	host          = flag.String("H", "", "HomeMatic Address")
-	port          = flag.String("p", "80", "Port")
-	name          = flag.String("n", "", "Devicename")
+	host          = flag.String("H", "", "HomeMatic Address (mandatory)")
+	devName       = flag.String("devName", "", "Device name (mandatory)")
+	devType       = flag.String("devType", "", "Device type (mandatory)")
+	port          = flag.String("p", "80", "Port (optional)")
+	wTemp         = flag.String("wTemp", "", "Warning Threshold Temperature (optional)")
+	cTemp         = flag.String("cTemp", "", "Critical Threshold Temperature (optional)")
+	wHumi         = flag.String("wHumi", "", "Warning Threshold Humidity (optional)")
+	cHumi         = flag.String("cHumi", "", "Critical Threshold Humidity (optional)")
 )
 
 func main() {
 
+	
+	// Create new check
+	check   := check.New()
+	message := ""
+
+	// Create writer
+	writer := activeWriter.New()
+	
+	
+	// Fixme
+	// Print usage info (Override of flag.Usage)
+	flag.Usage = func() {
+		check.Message("Usage:")
+		check.Message("  -H string HomeMatic Address (mandatory)")
+		check.Message("  -devName string Device name (mandatory)")
+		check.Message("  -devType string Device type (mandatory)")
+		check.Message("  -p string default \"80\" Port (optional)")
+		check.Message("  -wTemp string Warning Threshold Temperature (optional)")
+		check.Message("  -cTemp string Critical Threshold Temperature (optional)")
+		check.Message("  -Humi string Warning Threshold Humidity (optional)")
+		check.Message("  -cHumi string Critical Threshold Humidity (optional)")
+		check.Status.Unknown()
+		writer.Write(check)		
+	}
+	
 	// Parse command-line args
 	flag.Parse()
+
+	// Check mandatory args
+	if *host == "" {
+		flag.Usage()	
+	}
+	if *devName == "" {
+		flag.Usage()	
+	}
+	if *devType == "" {
+		flag.Usage()	
+	}
+
+	// Set ranges
+	var rangeWarnTemp *r.Range
+	var rangeCritTemp *r.Range
+	var rangeWarnHumi *r.Range
+	var rangeCritHumi *r.Range
+
+	if *wTemp != "" {
+		rangeWarnTemp = r.New()
+		rangeWarnTemp.Parse(*wTemp)
+	}
+	if *cTemp != "" {
+		rangeCritTemp = r.New()
+		rangeCritTemp.Parse(*cTemp)
+	}
+	if *wHumi != "" {
+		rangeWarnHumi = r.New()
+		rangeWarnHumi.Parse(*wHumi)
+	}
+	if *cHumi != "" {
+		rangeCritHumi = r.New()
+		rangeCritHumi.Parse(*cHumi)
+	}
 
 	// Init HomeMatic connection
 	api, err := hm.Init(*host, *port)
@@ -40,20 +102,10 @@ func main() {
 		log.Fatal("Init returned error: ", err)
 	}
 
-	// Check
-	check   := check.New()
-	message := ""
-	rangeWarn := r.New()
-	rangeCrit := r.New()
-
-	rangeWarn.Parse("15:25")
-	rangeCrit.Parse("10:30")
-
-
 	// Get device-id
-	deviceName := *name
 	deviceID   := ""
 
+	// Get devicelist
 	dl, err := api.DeviceList()
 	if err != nil {
 		check.Status.Critical(true)
@@ -61,13 +113,23 @@ func main() {
 		writer.Write(check)
 	}
 
+	// Get device by name and type
 	for i := 0; i < len(dl.Device); i++ {
-		if dl.Device[i].Name == deviceName {
+		if dl.Device[i].Name == *devName && dl.Device[i].DeviceType == *devType {
 			deviceID = dl.Device[i].IseID
 			break
 		}
 	}
 
+	// Device not found error
+	if deviceID == "" {
+		message = fmt.Sprintf("No device with name=%s and type=%s found", *devName, *devType)
+		check.Status.Critical(true)
+		check.Message(message)
+		writer.Write(check)
+	}
+
+	// Get state
 	state, err := api.State(deviceID)
 	if err != nil {
 		check.Status.Critical(true)
@@ -75,93 +137,22 @@ func main() {
 		writer.Write(check)
 	}
 
-	var unreach 	bool
-	var lowBat  	bool
-	var temperature float64
-	var humidity	int64
+	// Run specific checks
+	switch *devType {
+	case "HM-WDS40-TH-I-2", "HM-WDS10-TH-O":
+		hmwds40thi.Check(state, wTemp, cTemp, wHumi, cHumi, writer)
 
-	unreach = true
-	unreach, _ = strconv.ParseBool(state.Device.Unreach) 
-
-	lowBat = true
-	for i := 0; i < len(state.Device.Channel); i++ {
-		for x := 0; x < len(state.Device.Channel[i].Datapoint); x++ {
-			if state.Device.Channel[i].Datapoint[x].Type == "LOWBAT" {
-				lowBat, _ = strconv.ParseBool(state.Device.Channel[i].Datapoint[x].Value)
-				break
-			}
-		}
-	}
-
-	for i := 0; i < len(state.Device.Channel); i++ {
-		for x := 0; x < len(state.Device.Channel[i].Datapoint); x++ {
-			if state.Device.Channel[i].Datapoint[x].Type == "TEMPERATURE" {
-				temperature, _ = strconv.ParseFloat(state.Device.Channel[i].Datapoint[x].Value, 64)
-				break
-			}
-		}
-	}
-
-	for i := 0; i < len(state.Device.Channel); i++ {
-		for x := 0; x < len(state.Device.Channel[i].Datapoint); x++ {
-			if state.Device.Channel[i].Datapoint[x].Type == "HUMIDITY" {
-				humidity, _ = strconv.ParseInt(state.Device.Channel[i].Datapoint[x].Value, 10, 64)
-				break
-			}
-		}
-	}
-
-	// Unreacheable
-	if unreach == true {
-		message += fmt.Sprintf("Device unreacheable ")
+	default:
+		message = fmt.Sprintf("Check for device type =%s missing", *devType)
 		check.Status.Critical(true)
+		check.Message(message)
+		writer.Write(check)
 	}
 
-	// Lowbat
-	if lowBat == true {
-		message += fmt.Sprintf("Battery low ")
-		check.Status.Warning(false)
-	}
-
-	// Temperature
-	statTemp := status.New()
-	statTemp.Threshold(temperature, &rangeWarn, &rangeCrit, true)
-	check.Status.Merge(statTemp)
-
-	message += fmt.Sprintf("Temperature: %.1f°C ", temperature)
-	if statTemp.ReturnCode() != status.OK {
-		message += fmt.Sprintf("(%s) ", statTemp.String())
-	} 
-
-	// Humidity
-	statHumi := status.New()
-	statHumi.Threshold(temperature, &rangeWarn, &rangeCrit, true)
-	check.Status.Merge(statHumi)
-
-	message += fmt.Sprintf("Humidity: %d%% ", humidity)
-	if statHumi.ReturnCode() != status.OK {
-		message += fmt.Sprintf("(%s) ", statTemp.String())
-	} 
-
-	// Add message
+	// Unknown error
+	message = fmt.Sprintf("Unknown error")
+	check.Status.Critical(true)
 	check.Message(message)
-
-	// Add Perfdata Temperature
-	var datapoint *perfdata.PerformanceData
-
-	datapoint, err = perfdata.New("Temperature", temperature, "", nil, nil, nil, nil )
-	if err == nil {
-		check.Perfdata(datapoint)
-	}
-
-	// Add Perfdata Humidity
-	datapoint, err = perfdata.New("Humidity", float64(humidity), "%", nil, nil, nil, nil )
-	if err == nil {
-		check.Perfdata(datapoint)
-	}
-
-	fmt.Printf("%s", check.String())
-
-	os.Exit(check.Status.ReturnCode())
+	writer.Write(check)
 
 }
