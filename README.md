@@ -11,7 +11,7 @@ Supported device-types:
 - HM-WDS10-TH-O
 
 Usage:
-- check_homematic -H=&gtHost> -devType=<DeviceType> -devName=<DeviceName> [-wTemp=<range>] [-cTemp=<range>] [-wHumi=<range>] [-cHumi=<range>] 
+- check_homematic -H=\<Host> -devType=<DeviceType> -devName=<DeviceName> [-wTemp=<range>] [-cTemp=<range>] [-wHumi=<range>] [-cHumi=<range>] 
 
 Arguments:
 - H string HomeMatic Address (mandatory)
