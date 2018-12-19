@@ -13,12 +13,14 @@ import (
 	"log"
 
 	hm           "github.com/BFLB/HomeMatic"
-	check        "github.com/BFLB/monitoringplugin"
+	checker      "github.com/BFLB/monitoringplugin"
 	r            "github.com/BFLB/monitoringplugin/Range"
 	activeWriter "github.com/BFLB/monitoringplugin/writers/activeWriter"
 	hmwds40thi   "github.com/BFLB/check_homematic/devices/hmwdsfortythi"
 
 )
+
+const VERSION = "v0.1"
 
 // Comman-line Arguments
 var (
@@ -30,13 +32,14 @@ var (
 	cTemp         = flag.String("cTemp", "", "Critical Threshold Temperature (optional)")
 	wHumi         = flag.String("wHumi", "", "Warning Threshold Humidity (optional)")
 	cHumi         = flag.String("cHumi", "", "Critical Threshold Humidity (optional)")
+	version       = flag.Bool("V", false, "Version")
 )
 
 func main() {
 
 	
 	// Create new check
-	check   := check.New()
+	check   := checker.New()
 	message := ""
 
 	// Create writer
@@ -55,12 +58,20 @@ func main() {
 		check.Message("  -cTemp string Critical Threshold Temperature (optional)")
 		check.Message("  -Humi string Warning Threshold Humidity (optional)")
 		check.Message("  -cHumi string Critical Threshold Humidity (optional)")
+		check.Message("  -V bool Version (optional)")
 		check.Status.Unknown()
 		writer.Write(check)		
 	}
 	
 	// Parse command-line args
 	flag.Parse()
+
+	if *version {
+		message = fmt.Sprintf("Version: check=%s, homematic-library:%s, monitoring-library:%s", VERSION, hm.VERSION, checker.VERSION)
+		check.Status.Unknown()
+		check.Message(message)
+		writer.Write(check)
+	  }
 
 	// Check mandatory args
 	if *host == "" {
